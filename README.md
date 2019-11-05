@@ -7,7 +7,7 @@ The implementation is strongly inspired by [cita trie](https://github.com/crypta
 ## Features
 
 - Implementation of the Modified Patricia Tree
-
+- Support `no_std`
 
 ## Example
 

@@ -1,7 +1,5 @@
 
-#[cfg(not(feature = "std"))]
-use alloc::vec::Vec;
-
+use crate::std::*;
 use core::cmp::min;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
