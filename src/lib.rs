@@ -38,7 +38,7 @@ pub use db::{MemoryDB};
 pub use error::{TrieError};
 pub use trie::{MerklePatriciaTrie, Trie, TrieResult};
 
-/// Generates a trie root hash for a vector of key-value tuples
+/// Generates a trie for a vector of key-value tuples
 ///
 /// ```rust
 /// extern crate merkle_patricia_trie as trie;
@@ -73,7 +73,7 @@ pub fn build_trie<I, A, B>(data: I) -> TrieResult<MerklePatriciaTrie>
     Ok(trie)
 }
 
-/// Generates a trie root hash for a vector of values
+/// Generates a trie for a vector of values
 ///
 /// ```rust
 /// extern crate merkle_patricia_trie as trie;
