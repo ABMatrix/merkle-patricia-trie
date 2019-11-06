@@ -6,6 +6,8 @@ mod trie_tests {
 
     use crate::db::MemoryDB;
     use crate::trie::*;
+    use crate::proof::Proof;
+    use rlp::{self, Rlp};
 
     fn assert_root(data: Vec<(&[u8], &[u8])>, hash: &str) {
         let memdb = Rc::new(MemoryDB::new());
@@ -571,12 +573,12 @@ mod trie_tests {
         assert_eq!(
             proof
                 .clone()
-                .into_iter()
+                .nodes.into_iter()
                 .map(hex::encode)
                 .collect::<Vec<_>>(),
             expected
         );
-        let value = trie.verify_proof(root.clone(), b"doe", proof).unwrap();
+        let value = MerklePatriciaTrie::verify_proof(root.clone(), b"doe", proof).unwrap();
         assert_eq!(value, Some(b"reindeer".to_vec()));
 
         // proof of key not exist
@@ -589,22 +591,22 @@ mod trie_tests {
         assert_eq!(
             proof
                 .clone()
-                .into_iter()
+                .nodes.into_iter()
                 .map(hex::encode)
                 .collect::<Vec<_>>(),
             expected
         );
-        let value = trie.verify_proof(root.clone(), b"dogg", proof).unwrap();
+        let value = MerklePatriciaTrie::verify_proof(root.clone(), b"dogg", proof).unwrap();
         assert_eq!(value, None);
 
         // empty proof
         let proof = vec![];
-        let value = trie.verify_proof(root.clone(), b"doe", proof);
+        let value = MerklePatriciaTrie::verify_proof(root.clone(), b"doe", proof.into());
         assert_eq!(value.is_err(), true);
 
         // bad proof
         let proof = vec![b"aaa".to_vec(), b"ccc".to_vec()];
-        let value = trie.verify_proof(root.clone(), b"doe", proof);
+        let value = MerklePatriciaTrie::verify_proof(root.clone(), b"doe", proof.into());
         assert_eq!(value.is_err(), true);
     }
 
@@ -628,7 +630,7 @@ mod trie_tests {
         let root = trie.root().unwrap();
         for k in keys.into_iter() {
             let proof = trie.get_proof(&k).unwrap();
-            let value = trie.verify_proof(root.clone(), &k, proof).unwrap().unwrap();
+            let value = MerklePatriciaTrie::verify_proof(root.clone(), &k, proof).unwrap().unwrap();
             assert_eq!(value, k);
         }
     }
@@ -650,17 +652,62 @@ mod trie_tests {
         let root = trie.root().unwrap();
         let proof = trie.get_proof(b"k").unwrap();
         assert_eq!(proof.len(), 1);
-        let value = trie
-            .verify_proof(root.clone(), b"k", proof.clone())
+        let value = MerklePatriciaTrie
+            ::verify_proof(root.clone(), b"k", proof.clone())
             .unwrap();
         assert_eq!(value, Some(b"v".to_vec()));
 
         // remove key does not affect the verify process
         trie.remove(b"k").unwrap();
         let _root = trie.root().unwrap();
-        let value = trie
-            .verify_proof(root.clone(), b"k", proof.clone())
+        let value = MerklePatriciaTrie
+            ::verify_proof(root.clone(), b"k", proof.clone())
             .unwrap();
         assert_eq!(value, Some(b"v".to_vec()));
+    }
+
+    #[test]
+    fn test_ethereum_receipts_proof() {
+        let rlp_proof: Vec<u8> = Vec::from_hex("f9016ef9016bb853f851a009b67a67265063da0dd6a7abad695edb2c439f6b458f2a2ee48a21442fef8a2680808080808080a0a7d4f8b974d21b7244014729b07e9c9f19fdc445da2ceddc089d90cead74be618080808080808080b90113f9011031b9010cf9010901835cdb6eb9010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000c0").unwrap();
+        let expected: Vec<u8> = Vec::from_hex("f9010901835cdb6eb9010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000c0").unwrap();
+        let root = Vec::from_hex("7fa081e3e33e53c4d09ae691af3853bb73a7e02c856104fe843172abab85df7b").unwrap();
+
+        let proof: Proof = rlp::decode(&rlp_proof).unwrap();
+        let key = rlp::encode(&1usize);
+        let value = MerklePatriciaTrie
+        ::verify_proof(root.clone(), &key, proof.clone())
+            .unwrap();
+        assert!(value.is_some());
+        assert_eq!(value.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_ethereum_receipts_build_proof() {
+        // transaction hash 0xb04fcb9822eb21b5ffdbf89df076de58469af66d23c86abe30266e5d3c5e0db2   in ropsten
+        // build trie
+        let data = vec![
+            Vec::from_hex("f90184018261beb9010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000040000000000000000000000000000000000000000000000000000000040000000000000000000000800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000800000020000000000000000000000000000000000f87bf87994095c5cbf4937d0a21f6f395194e95b6ebe8616b9e1a06ef95f06320e7a25a04a175ca677b7052bdd97131872c2192525a629f51be770b8400000000000000000000000002e0a521fe69c14d99c8d236d8c3cd5353cc44e720000000000000000000000000000000000000000000000000000000000000000").unwrap(),
+            Vec::from_hex("f9010901835cdb6eb9010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000c0").unwrap(),
+        ];
+        let hash = "0x7fa081e3e33e53c4d09ae691af3853bb73a7e02c856104fe843172abab85df7b";
+
+        let memdb = Rc::new(MemoryDB::new());
+        let mut trie = MerklePatriciaTrie::new(Rc::clone(&memdb));
+        for (k, v) in data.clone().into_iter().enumerate().map(|(i, v)| (rlp::encode(&i), v)) {
+            trie.insert(k.to_vec(), v.to_vec()).unwrap();
+        }
+        let r = trie.root().unwrap();
+        let rs = format!("0x{}", hex::encode(r.clone()));
+
+        assert_eq!(rs.as_str(), hash);
+
+        // check proof
+        let key = rlp::encode(&1usize);
+        let proof = trie.get_proof(&key).unwrap();
+        let value = MerklePatriciaTrie
+        ::verify_proof(r.clone(), &key, proof.clone())
+            .unwrap();
+
+        assert_eq!(value.unwrap(), data[1]);
     }
 }

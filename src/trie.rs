@@ -7,6 +7,7 @@ use crate::db::MemoryDB;
 use crate::error::TrieError;
 use crate::nibbles::Nibbles;
 use crate::node::{empty_children, BranchNode, Node};
+use crate::proof::Proof;
 
 pub type TrieResult<T> = Result<T, TrieError>;
 
@@ -70,7 +71,7 @@ pub trait Trie {
     fn contains(&self, key: &[u8]) -> TrieResult<bool>;
 
     /// Inserts value into trie and modifies it if it exists
-    fn insert(&mut self, key: Vec<u8>, value: Vec<u8>) -> TrieResult<()>;
+    fn insert(&mut self, key: Vec<u8>, value: Vec<u8>) -> TrieResult<bool>;
 
     /// Removes any existing value for key from the trie.
     fn remove(&mut self, key: &[u8]) -> TrieResult<bool>;
@@ -86,14 +87,13 @@ pub trait Trie {
     /// If the trie does not contain a value for key, the returned proof contains all
     /// nodes of the longest existing prefix of the key (at least the root node), ending
     /// with the node that proves the absence of the key.
-    fn get_proof(&self, key: &[u8]) -> TrieResult<Vec<Vec<u8>>>;
+    fn get_proof(&self, key: &[u8]) -> TrieResult<Proof>;
 
     /// return value if key exists, None if key not exist, Error if proof is wrong
     fn verify_proof(
-        &self,
         root_hash: Vec<u8>,
         key: &[u8],
-        proof: Vec<Vec<u8>>,
+        proof: Proof,
     ) -> TrieResult<Option<Vec<u8>>>;
 }
 
@@ -111,14 +111,14 @@ impl Trie for MerklePatriciaTrie {
     }
 
     /// Inserts value into trie and modifies it if it exists
-    fn insert(&mut self, key: Vec<u8>, value: Vec<u8>) -> TrieResult<()> {
+    fn insert(&mut self, key: Vec<u8>, value: Vec<u8>) -> TrieResult<bool> {
         if value.is_empty() {
             self.remove(&key)?;
-            return Ok(());
+            return Ok(false);
         }
         let root = self.root.clone();
         self.root = self.insert_at(root, Nibbles::from_raw(key, true), value.to_vec())?;
-        Ok(())
+        Ok(true)
     }
 
     /// Removes any existing value for key from the trie.
@@ -142,27 +142,28 @@ impl Trie for MerklePatriciaTrie {
     /// If the trie does not contain a value for key, the returned proof contains all
     /// nodes of the longest existing prefix of the key (at least the root node), ending
     /// with the node that proves the absence of the key.
-    fn get_proof(&self, key: &[u8]) -> TrieResult<Vec<Vec<u8>>> {
+    fn get_proof(&self, key: &[u8]) -> TrieResult<Proof> {
         let mut path =
             self.get_path_at(self.root.clone(), &Nibbles::from_raw(key.to_vec(), true))?;
         match self.root {
             Node::Empty => {}
             _ => path.push(self.root.clone()),
         }
-        Ok(path.into_iter().rev().map(|n| self.encode_raw(n)).collect())
+        Ok(Proof {
+            nodes: path.into_iter().rev().map(|n| self.encode_raw(n)).collect()
+        })
     }
 
     /// return value if key exists, None if key not exist, Error if proof is wrong
     ///
     /// insert data to memory db, and check root. if value exists, means ok .
     fn verify_proof(
-        &self,
         root_hash: Vec<u8>,
         key: &[u8],
-        proof: Vec<Vec<u8>>,
+        proof: Proof,
     ) -> TrieResult<Option<Vec<u8>>> {
         let memdb = Rc::new(MemoryDB::new());
-        for node_encoded in proof.into_iter() {
+        for node_encoded in proof.nodes.into_iter() {
             let hash = hasher_digest(&node_encoded);
 
             if root_hash.eq(&hash) || node_encoded.len() >= LENGTH {
@@ -171,6 +172,7 @@ impl Trie for MerklePatriciaTrie {
         }
         let trie = MerklePatriciaTrie::from(memdb, &root_hash)
             .or(Err(TrieError::InvalidProof))?;
+
         trie.get(key).or(Err(TrieError::InvalidProof))
     }
 }
@@ -782,6 +784,7 @@ impl<'a> Iterator for TrieIterator<'a>
     }
 }
 
+
 #[cfg(test)]
 mod tests {
     use rand::distributions::Alphanumeric;
@@ -1092,4 +1095,5 @@ mod tests {
             .for_each(|(k, v)| assert_eq!(kv.remove(&k).unwrap(), v));
         assert!(kv.is_empty());
     }
+
 }
