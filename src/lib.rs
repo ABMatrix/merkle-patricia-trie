@@ -37,6 +37,7 @@ mod proof;
 pub use db::{MemoryDB};
 pub use error::{TrieError};
 pub use trie::{MerklePatriciaTrie, Trie, TrieResult};
+pub use proof::Proof;
 
 /// Generates a trie for a vector of key-value tuples
 ///
